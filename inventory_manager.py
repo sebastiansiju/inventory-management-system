@@ -4,6 +4,12 @@ from datetime import datetime
 import threading
 from typing import Dict, List, Optional
 
+# Replenishment policy. An auto-reorder buys at least BULK_REORDER_QUANTITY
+# units, but always enough to finish REORDER_BUFFER units clear of the item's
+# threshold so a restocked item is not immediately flagged as low again.
+BULK_REORDER_QUANTITY = 50
+REORDER_BUFFER = 10
+
 # CORE LOGIC (OOP Data Structures & Thread-Safe Engine)
 
 
@@ -72,10 +78,15 @@ class AdvancedInventoryManager:
         self._inventory: Dict[str, InventoryItem] = {}
         self._global_lock: threading.Lock = threading.Lock()
         self.audit_logs: List[str] = []
+        # The audit log gets its own lock rather than reusing _global_lock:
+        # several callers append to it while already holding _global_lock, and
+        # threading.Lock is not reentrant, so sharing one would deadlock.
+        self._log_lock: threading.Lock = threading.Lock()
 
     def log_event(self, message: str) -> None:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.audit_logs.append(f"[{timestamp}] {message}")
+        with self._log_lock:
+            self.audit_logs.append(f"[{timestamp}] {message}")
 
     def add_item(self, item: InventoryItem) -> None:
         with self._global_lock:
@@ -116,9 +127,16 @@ class AdvancedInventoryManager:
 
     # --- ALGORITHM 4: Automatic Reorder Algorithm ---
     def auto_reorder(self, item: InventoryItem) -> None:
-        """Automatically purchases stock to replenish depleted inventory."""
+        """Automatically purchases stock to replenish depleted inventory.
+
+        Orders whichever is larger: the standard bulk quantity, or however many
+        units it takes to clear the item's threshold plus a buffer. A flat
+        quantity would leave any item whose threshold exceeds that quantity
+        permanently below its reorder point, re-triggering on every sale.
+        """
         with self._global_lock:
-            reorder_amount = 50  # Default bulk purchase amount
+            shortfall = item.reorder_threshold - item.stock
+            reorder_amount = max(BULK_REORDER_QUANTITY, shortfall + REORDER_BUFFER)
             item.adjust_stock(reorder_amount)
             self.log_event(f"AUTO-REORDER: System purchased {reorder_amount} units for {item.item_id}.")
 
@@ -308,7 +326,9 @@ class InventoryApp(tk.Tk):
 
         for item in sorted_items:
             status = "⚠️ AUTO-REORDERED" if item.requires_reorder else "✅ OK"
-            self.tree.insert("", "end", values=(
+            # The SKU doubles as the row's iid, so selection handlers can look the
+            # item up in the model instead of parsing formatted display text back.
+            self.tree.insert("", "end", iid=item.item_id, values=(
                 item.item_id, item.name, item.stock, f"${item.price:.2f}", item.reorder_threshold, status
             ))
 
@@ -323,12 +343,24 @@ class InventoryApp(tk.Tk):
         self.manager.add_item(InventoryItem("CABL-03", "Cat6 Cable (10m)", 5, 15.00, 10)) 
         self._refresh_ui()
 
+    def _selected_item_id(self) -> Optional[str]:
+        """The SKU of the highlighted row, or None with a warning if nothing is selected."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Selection Error", "Please select an item from the table.")
+            return None
+        return selected[0]      # the iid is the SKU
+
     def _on_select_item(self, _event):
         selected = self.tree.selection()
-        if selected:
-            values = self.tree.item(selected[0], "values")
-            self.var_edit_price.set(values[3].replace("$", ""))
-            self.var_edit_threshold.set(values[4])
+        if not selected:
+            return
+        try:
+            item = self.manager.get_item(selected[0])
+        except KeyError:
+            return
+        self.var_edit_price.set(f"{item.price:.2f}")
+        self.var_edit_threshold.set(str(item.reorder_threshold))
 
     def _add_item(self):
         try:
@@ -349,56 +381,50 @@ class InventoryApp(tk.Tk):
             messagebox.showerror("Input Error", str(e))
 
     def _record_sale(self):
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showwarning("Selection Error", "Please select an item from the table.")
+        item_id = self._selected_item_id()
+        if item_id is None:
             return
 
-        item_id = self.tree.item(selected[0], "values")[0]
         try:
             qty = int(self.var_op_qty.get())
             if qty <= 0: raise ValueError("Quantity must be greater than zero.")
-            
+
             auto_reordered = self.manager.record_sale(item_id, qty)
             self._refresh_ui()
 
             if auto_reordered:
                 messagebox.showinfo("Auto Reorder Triggered", f"Stock for [{item_id}] breached threshold.\nAutomatic replenishment algorithm executed.")
-        except Exception as e:
+        except (ValueError, KeyError) as e:
             messagebox.showerror("Sale Error", str(e))
 
     def _restock_item(self):
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showwarning("Selection Error", "Please select an item from the table.")
+        item_id = self._selected_item_id()
+        if item_id is None:
             return
 
-        item_id = self.tree.item(selected[0], "values")[0]
         try:
             qty = int(self.var_op_qty.get())
             if qty <= 0: raise ValueError("Quantity must be greater than zero.")
-            
+
             item = self.manager.get_item(item_id)
             item.adjust_stock(qty)
             self.manager.log_event(f"MANUAL RESTOCK: Added {qty} units to {item_id}.")
             self._refresh_ui()
-        except Exception as e:
+        except (ValueError, KeyError) as e:
             messagebox.showerror("Restock Error", str(e))
 
     def _apply_edits(self):
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showwarning("Selection Error", "Please select an item from the table.")
+        item_id = self._selected_item_id()
+        if item_id is None:
             return
 
-        item_id = self.tree.item(selected[0], "values")[0]
         try:
             price_val = float(self.var_edit_price.get()) if self.var_edit_price.get() else None
             thresh_val = int(self.var_edit_threshold.get()) if self.var_edit_threshold.get() else None
 
             self.manager.edit_item(item_id, price=price_val, threshold=thresh_val)
             self._refresh_ui()
-        except Exception as e:
+        except (ValueError, KeyError) as e:
             messagebox.showerror("Edit Error", str(e))
 
 

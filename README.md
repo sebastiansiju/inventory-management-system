@@ -93,11 +93,28 @@ Everything you do appears in the **System Audit Trail Logs** pane with a timesta
 | SWCH-02 | Network Switch | 25 | $450.00 | 8 |
 | CABL-03 | Cat6 Cable (10m) | 5 | $15.00 | 10 |
 
+## Running the tests
+
+The engine is decoupled from the GUI, so it is tested without a display:
+
+```bash
+python -m unittest discover -s tests -t . -v
+```
+
+27 tests cover the property validators, stock arithmetic and its non-negative
+guard, `O(1)` lookup, merge sort across all four keys, the reorder policy, the
+audit trail, and the locking — including a concurrency test asserting that 8
+threads doing 100 increments each land on exactly 800, and a regression test
+that a restocked item finishes clear of its threshold.
+
 ## Project structure
 
 ```
 inventory-management-system/
-├── inventory_manager.py   # Inventory engine + Tkinter GUI
+├── inventory_manager.py           # Inventory engine + Tkinter GUI
+├── tests/
+│   └── test_inventory_engine.py   # unittest coverage for the engine
+├── .github/workflows/tests.yml    # CI: runs the suite on every push
 ├── README.md
 └── .gitignore
 ```

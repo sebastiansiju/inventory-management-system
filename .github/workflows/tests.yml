@@ -1,0 +1,29 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unittest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Uses the runner's system Python rather than actions/setup-python: the
+      # engine shares a module with the Tkinter GUI, so `import tkinter` runs at
+      # import time, and apt's python3-tk matches the system interpreter.
+      - name: Install Tk
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: Show version
+        run: python3 --version && python3 -c "import tkinter; print('tkinter', tkinter.TkVersion)"
+
+      - name: Byte-compile
+        run: python3 -m compileall -q inventory_manager.py tests
+
+      - name: Run tests
+        run: python3 -m unittest discover -s tests -t . -v
