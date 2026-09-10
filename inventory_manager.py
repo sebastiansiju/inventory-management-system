@@ -17,6 +17,8 @@ class InventoryItem:
     """Represents an encapsulated product with built-in thread safety."""
     
     def __init__(self, item_id: str, name: str, stock: int, price: float, reorder_threshold: int):
+        """Creates a product. Stock, price and threshold are validated only
+        when later set through their properties, not on construction."""
         self.item_id: str = item_id
         self._name: str = name
         self._stock: int = stock
@@ -25,32 +27,39 @@ class InventoryItem:
         self._lock: threading.Lock = threading.Lock()
     @property
     def name(self) -> str:
+        """The product name."""
         with self._lock: return self._name
-    
+
     @name.setter
     def name(self, new_name: str) -> None:
+        """Sets the product name; rejects a blank or whitespace-only value."""
         if not new_name.strip(): raise ValueError("Name cannot be empty.")
         with self._lock: self._name = new_name
 
     @property
     def stock(self) -> int:
+        """The current stock count. Use adjust_stock to change it."""
         with self._lock: return self._stock
 
     @property
     def price(self) -> float:
+        """The unit price."""
         with self._lock: return self._price
-    
+
     @price.setter
     def price(self, new_price: float) -> None:
+        """Sets the unit price; rejects a negative value."""
         if new_price < 0: raise ValueError("Price cannot be negative.")
         with self._lock: self._price = new_price
 
     @property
     def reorder_threshold(self) -> int:
+        """The stock level at or below which the item needs reordering."""
         with self._lock: return self._reorder_threshold
-    
+
     @reorder_threshold.setter
     def reorder_threshold(self, new_threshold: int) -> None:
+        """Sets the reorder threshold; rejects a negative value."""
         if new_threshold < 0: raise ValueError("Threshold cannot be negative.")
         with self._lock: self._reorder_threshold = new_threshold
 
@@ -75,6 +84,7 @@ class AdvancedInventoryManager:
     """Thread-safe inventory engine using hash map lookup O(1)."""
     
     def __init__(self):
+        """Creates an empty manager with no items and no audit history."""
         self._inventory: Dict[str, InventoryItem] = {}
         self._global_lock: threading.Lock = threading.Lock()
         self.audit_logs: List[str] = []
@@ -84,11 +94,13 @@ class AdvancedInventoryManager:
         self._log_lock: threading.Lock = threading.Lock()
 
     def log_event(self, message: str) -> None:
+        """Appends a timestamped entry to the audit trail."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with self._log_lock:
             self.audit_logs.append(f"[{timestamp}] {message}")
 
     def add_item(self, item: InventoryItem) -> None:
+        """Registers a new item, or adds its stock to an existing SKU."""
         with self._global_lock:
             if item.item_id in self._inventory:
                 self._inventory[item.item_id].adjust_stock(item.stock)
@@ -106,6 +118,9 @@ class AdvancedInventoryManager:
             return self._inventory[item_id]
 
     def edit_item(self, item_id: str, name: Optional[str] = None, price: Optional[float] = None, threshold: Optional[int] = None) -> None:
+        """Updates any of the given fields on an item and audits the change.
+        Fields left as None are left untouched; if none are given, nothing
+        is logged."""
         item = self.get_item(item_id) # Uses Searching Algorithm
         changes = []
         
@@ -141,6 +156,8 @@ class AdvancedInventoryManager:
             self.log_event(f"AUTO-REORDER: System purchased {reorder_amount} units for {item.item_id}.")
 
     def record_sale(self, item_id: str, quantity: int) -> bool:
+        """Deducts a sale from stock, auto-reordering if it drops to or below
+        the threshold. Returns whether an auto-reorder was triggered."""
         item = self.get_item(item_id) # Uses Searching Algorithm
         
         new_stock = item.adjust_stock(-quantity) # Uses Stock Update Algorithm
