@@ -222,7 +222,8 @@ class AdvancedInventoryManager:
 
 
 class InventoryApp(tk.Tk):
-    def __init__(self):
+    def __init__(self) -> None:
+        """Builds the window, the engine, and loads the sample catalogue."""
         super().__init__()
         self.title("502IT Problem 4: Enterprise Inventory Manager")
         self.geometry("1024x720")
@@ -234,7 +235,7 @@ class InventoryApp(tk.Tk):
         self._build_layout()
         self._seed_sample_data()
 
-    def _build_layout(self):
+    def _build_layout(self) -> None:
         left_panel = ttk.Frame(self, width=320)
         left_panel.pack(side="left", fill="y", padx=(0, 15))
 
@@ -244,7 +245,7 @@ class InventoryApp(tk.Tk):
         self._build_form_panel(left_panel)
         self._build_table_panel(right_panel)
 
-    def _build_form_panel(self, parent):
+    def _build_form_panel(self, parent: ttk.Frame) -> None:
         # 1. Add Item Box
         form_frame = ttk.LabelFrame(parent, text=" Add / Register Item ", padding=15)
         form_frame.pack(fill="x", pady=(0, 15))
@@ -289,11 +290,11 @@ class InventoryApp(tk.Tk):
 
         ttk.Button(edit_frame, text="✏️ Apply Edits", command=self._apply_edits).grid(row=2, column=0, columnspan=2, pady=(12, 0), sticky="ew")
 
-    def _labeled_entry(self, parent, label_text, variable, row):
+    def _labeled_entry(self, parent: ttk.Frame, label_text: str, variable: tk.StringVar, row: int) -> None:
         ttk.Label(parent, text=label_text).grid(row=row, column=0, sticky="w", pady=4)
         ttk.Entry(parent, textvariable=variable, width=18).grid(row=row, column=1, sticky="e", pady=4)
 
-    def _build_table_panel(self, parent):
+    def _build_table_panel(self, parent: ttk.Frame) -> None:
         table_frame = ttk.LabelFrame(parent, text=" Current Inventory Records ", padding=10)
         table_frame.pack(fill="both", expand=True)
         
@@ -330,11 +331,11 @@ class InventoryApp(tk.Tk):
         self.txt_logs = tk.Text(log_frame, height=10, font=("Consolas", 10), bg="#1e1e1e", fg="#4af626", padx=5, pady=5)
         self.txt_logs.pack(fill="both", expand=True)
 
-    def _on_sort_change(self, event):
+    def _on_sort_change(self, event: "tk.Event[tk.Misc]") -> None:
         self.current_sort = self.var_sort.get()
         self._refresh_ui()
 
-    def _refresh_ui(self):
+    def _refresh_ui(self) -> None:
         for row in self.tree.get_children():
             self.tree.delete(row)
 
@@ -354,7 +355,7 @@ class InventoryApp(tk.Tk):
             self.txt_logs.insert(tk.END, log + "\n")
         self.txt_logs.see(tk.END)
 
-    def _seed_sample_data(self):
+    def _seed_sample_data(self) -> None:
         self.manager.add_item(InventoryItem("SRVC-01", "Enterprise Server", 10, 2499.99, 3))
         self.manager.add_item(InventoryItem("SWCH-02", "Network Switch", 25, 450.00, 8))
         self.manager.add_item(InventoryItem("CABL-03", "Cat6 Cable (10m)", 5, 15.00, 10)) 
@@ -368,7 +369,7 @@ class InventoryApp(tk.Tk):
             return None
         return selected[0]      # the iid is the SKU
 
-    def _on_select_item(self, _event):
+    def _on_select_item(self, _event: "tk.Event[tk.Misc]") -> None:
         selected = self.tree.selection()
         if not selected:
             return
@@ -379,7 +380,7 @@ class InventoryApp(tk.Tk):
         self.var_edit_price.set(f"{item.price:.2f}")
         self.var_edit_threshold.set(str(item.reorder_threshold))
 
-    def _add_item(self):
+    def _add_item(self) -> None:
         try:
             item_id = self.var_id.get().strip()
             name = self.var_name.get().strip()
@@ -397,7 +398,7 @@ class InventoryApp(tk.Tk):
         except ValueError as e:
             messagebox.showerror("Input Error", str(e))
 
-    def _record_sale(self):
+    def _record_sale(self) -> None:
         item_id = self._selected_item_id()
         if item_id is None:
             return
@@ -414,7 +415,7 @@ class InventoryApp(tk.Tk):
         except (ValueError, KeyError) as e:
             messagebox.showerror("Sale Error", str(e))
 
-    def _restock_item(self):
+    def _restock_item(self) -> None:
         item_id = self._selected_item_id()
         if item_id is None:
             return
@@ -430,7 +431,7 @@ class InventoryApp(tk.Tk):
         except (ValueError, KeyError) as e:
             messagebox.showerror("Restock Error", str(e))
 
-    def _apply_edits(self):
+    def _apply_edits(self) -> None:
         item_id = self._selected_item_id()
         if item_id is None:
             return
