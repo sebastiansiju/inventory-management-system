@@ -38,6 +38,22 @@ class InventoryItemTests(unittest.TestCase):
             item.name = "   "
         self.assertEqual(item.name, "Widget")
 
+    def test_construction_rejects_blank_name(self):
+        with self.assertRaises(ValueError):
+            make_item(name="   ")
+
+    def test_construction_rejects_negative_stock(self):
+        with self.assertRaises(ValueError):
+            make_item(stock=-1)
+
+    def test_construction_rejects_negative_price(self):
+        with self.assertRaises(ValueError):
+            make_item(price=-0.01)
+
+    def test_construction_rejects_negative_threshold(self):
+        with self.assertRaises(ValueError):
+            make_item(threshold=-1)
+
     def test_rejects_negative_price(self):
         item = make_item()
         with self.assertRaises(ValueError):
