@@ -147,6 +147,20 @@ class SearchAndReportTests(unittest.TestCase):
         self.assertEqual(len(report), 25)
         self.assertEqual(len({i.item_id for i in report}), 25)
 
+    def test_merge_sort_is_stable_for_tied_keys(self):
+        """Regression: the merge step used strict '<', so tied keys got
+        reordered instead of keeping their original relative order."""
+        manager = AdvancedInventoryManager()
+        for item_id in ("E-5", "D-4", "C-3", "B-2", "A-1"):
+            manager.add_item(make_item(item_id, stock=10, price=5.0))
+
+        original_order = ["E-5", "D-4", "C-3", "B-2", "A-1"]
+        by_stock = [i.item_id for i in manager.generate_scanned_report("stock")]
+        self.assertEqual(by_stock, original_order)
+
+        by_price = [i.item_id for i in manager.generate_scanned_report("price")]
+        self.assertEqual(by_price, original_order)
+
 
 class SaleAndReorderTests(unittest.TestCase):
     def setUp(self):

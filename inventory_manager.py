@@ -191,15 +191,16 @@ class AdvancedInventoryManager:
         i = j = 0
 
         while i < len(left) and j < len(right):
-            # Determine sorting key dynamically
+            # <= (not <) so a tie keeps the left half's item first: left holds
+            # the earlier-indexed run, so this is what makes the sort stable.
             if sort_by == "stock":
-                condition = left[i].stock < right[j].stock
+                condition = left[i].stock <= right[j].stock
             elif sort_by == "price":
-                condition = left[i].price < right[j].price
+                condition = left[i].price <= right[j].price
             elif sort_by == "name":
-                condition = left[i].name.lower() < right[j].name.lower()
+                condition = left[i].name.lower() <= right[j].name.lower()
             else:
-                condition = left[i].item_id < right[j].item_id
+                condition = left[i].item_id <= right[j].item_id
 
             if condition:
                 sorted_list.append(left[i])
