@@ -37,12 +37,13 @@ Merge sort is implemented from scratch — recursive split plus an explicit `_me
 The domain layer is fully decoupled from the GUI, so the inventory engine can be imported and tested without Tkinter.
 
 ```
-InventoryItem              A single product. Stock, price, name and threshold are
-                           private attributes exposed through validating properties
-                           (empty names, negative prices and negative thresholds are
-                           rejected at the setter). Each instance carries its own
-                           threading.Lock, so concurrent readers and writers of one
-                           product are serialised.
+InventoryItem              A single product. SKU, stock, price, name and threshold
+                           are private attributes exposed through validating
+                           properties (a blank SKU or name, and negative prices or
+                           thresholds, are rejected at construction or the setter).
+                           Each instance carries its own threading.Lock, so
+                           concurrent readers and writers of one product are
+                           serialised.
 
 AdvancedInventoryManager   Owns the SKU -> InventoryItem hash map behind a global
                            lock, plus the audit log. Provides search, edit, sale,
@@ -101,8 +102,8 @@ The engine is decoupled from the GUI, so it is tested without a display:
 python -m unittest discover -s tests -t . -v
 ```
 
-32 tests cover the property validators (including that construction itself
-rejects a blank name or a negative stock, price or threshold), stock
+33 tests cover the property validators (including that construction itself
+rejects a blank ID or name, or a negative stock, price or threshold), stock
 arithmetic and its non-negative guard, `O(1)` lookup, merge sort across all
 four keys and its stability on tied keys, the reorder policy, the audit
 trail, and the locking — including a concurrency test asserting that 8

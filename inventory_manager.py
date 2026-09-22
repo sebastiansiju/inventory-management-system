@@ -18,16 +18,24 @@ class InventoryItem:
     
     def __init__(self, item_id: str, name: str, stock: int, price: float, reorder_threshold: int):
         """Creates a product, applying the same validation the properties
-        enforce on later edits: a blank name, or a negative stock, price or
-        threshold, is rejected up front rather than only on the next edit."""
+        enforce on later edits: a blank ID or name, or a negative stock,
+        price or threshold, is rejected up front rather than only on the
+        next edit."""
         self._lock: threading.Lock = threading.Lock()
-        self.item_id: str = item_id
+        if not item_id or not item_id.strip():
+            raise ValueError("Item ID cannot be empty.")
+        self._item_id: str = item_id
         self.name = name
         if stock < 0:
             raise ValueError(f"Stock cannot be negative. Got: {stock}")
         self._stock: int = stock
         self.price = price
         self.reorder_threshold = reorder_threshold
+
+    @property
+    def item_id(self) -> str:
+        """The unique SKU identifying this product; immutable after construction."""
+        with self._lock: return self._item_id
 
     @property
     def name(self) -> str:

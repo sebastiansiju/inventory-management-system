@@ -42,6 +42,10 @@ class InventoryItemTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             make_item(name="   ")
 
+    def test_construction_rejects_blank_item_id(self):
+        with self.assertRaises(ValueError):
+            make_item(item_id="   ")
+
     def test_construction_rejects_negative_stock(self):
         with self.assertRaises(ValueError):
             make_item(stock=-1)
