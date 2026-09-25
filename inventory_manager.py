@@ -160,8 +160,16 @@ class AdvancedInventoryManager:
         units it takes to clear the item's threshold plus a buffer. A flat
         quantity would leave any item whose threshold exceeds that quantity
         permanently below its reorder point, re-triggering on every sale.
+
+        Re-checks the item under the lock before ordering: two sales racing
+        on the same item can both observe it below threshold and both call
+        this method, and without the re-check the second call would add a
+        full extra bulk order on top of stock the first call already
+        replenished.
         """
         with self._global_lock:
+            if not item.requires_reorder:
+                return
             shortfall = item.reorder_threshold - item.stock
             reorder_amount = max(BULK_REORDER_QUANTITY, shortfall + REORDER_BUFFER)
             item.adjust_stock(reorder_amount)

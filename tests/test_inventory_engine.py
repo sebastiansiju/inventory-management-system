@@ -209,6 +209,42 @@ class SaleAndReorderTests(unittest.TestCase):
             self.manager.record_sale("A", 3)
             self.assertFalse(self.manager.get_item("A").requires_reorder)
 
+    def test_auto_reorder_is_a_noop_once_stock_already_clears_threshold(self):
+        """Guards a double-reorder race: two concurrent sales can both see an
+        item below threshold and both call auto_reorder; the second call
+        must not add another bulk order on top of stock the first already
+        replenished."""
+        self.manager.add_item(make_item("A", stock=2, threshold=5))
+        item = self.manager.get_item("A")
+
+        self.manager.auto_reorder(item)
+        stock_after_first_reorder = item.stock
+        self.assertFalse(item.requires_reorder)
+
+        self.manager.auto_reorder(item)
+        self.assertEqual(item.stock, stock_after_first_reorder,
+                          "a second reorder on an already-cleared item must be a no-op")
+
+    def test_concurrent_sales_never_double_reorder(self):
+        """Two threads racing record_sale on the same item, each crossing the
+        threshold, must not each add a full bulk order -- only enough stock
+        to clear the threshold once should be purchased in total."""
+        self.manager.add_item(make_item("A", stock=10, threshold=8))
+
+        def sell_one():
+            self.manager.record_sale("A", 1)
+
+        threads = [threading.Thread(target=sell_one) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        item = self.manager.get_item("A")
+        self.assertFalse(item.requires_reorder)
+        self.assertLessEqual(item.stock, 8 + BULK_REORDER_QUANTITY + REORDER_BUFFER,
+                              "stock implies more than one bulk reorder was applied")
+
 
 class EditAndAuditTests(unittest.TestCase):
     def setUp(self):
