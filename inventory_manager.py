@@ -364,7 +364,11 @@ class InventoryApp(tk.Tk):
         sorted_items = self.manager.generate_scanned_report(sort_by=self.current_sort)
 
         for item in sorted_items:
-            status = "⚠️ AUTO-REORDERED" if item.requires_reorder else "✅ OK"
+            # requires_reorder just means "at or below threshold right now", not
+            # "an auto-reorder already ran" -- auto_reorder() always leaves stock
+            # clear of the threshold, so a flagged row here has never actually
+            # been auto-reordered (e.g. a freshly seeded or edited item).
+            status = "⚠️ LOW STOCK" if item.requires_reorder else "✅ OK"
             # The SKU doubles as the row's iid, so selection handlers can look the
             # item up in the model instead of parsing formatted display text back.
             self.tree.insert("", "end", iid=item.item_id, values=(
