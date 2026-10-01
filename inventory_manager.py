@@ -132,23 +132,33 @@ class AdvancedInventoryManager:
     def edit_item(self, item_id: str, name: Optional[str] = None, price: Optional[float] = None, threshold: Optional[int] = None) -> None:
         """Updates any of the given fields on an item and audits the change.
         Fields left as None are left untouched; if none are given, nothing
-        is logged."""
+        is logged.
+
+        All-or-nothing: if a later field fails its validation (e.g. a
+        negative price), any earlier field this call already applied is
+        rolled back before the error is raised, so a rejected edit never
+        leaves the item partially mutated and unaudited.
+        """
         item = self.get_item(item_id) # Uses Searching Algorithm
+        old_name, old_price, old_threshold = item.name, item.price, item.reorder_threshold
         changes = []
-        
-        if name is not None:
-            old_name = item.name
-            item.name = name
-            changes.append(f"Name: '{old_name}' -> '{name}'")
-        if price is not None:
-            old_price = item.price
-            item.price = price
-            changes.append(f"Price: ${old_price:.2f} -> ${price:.2f}")
-        if threshold is not None:
-            old_t = item.reorder_threshold
-            item.reorder_threshold = threshold
-            changes.append(f"Threshold: {old_t} -> {threshold}")
-            
+
+        try:
+            if name is not None:
+                item.name = name
+                changes.append(f"Name: '{old_name}' -> '{name}'")
+            if price is not None:
+                item.price = price
+                changes.append(f"Price: ${old_price:.2f} -> ${price:.2f}")
+            if threshold is not None:
+                item.reorder_threshold = threshold
+                changes.append(f"Threshold: {old_threshold} -> {threshold}")
+        except ValueError:
+            item.name = old_name
+            item.price = old_price
+            item.reorder_threshold = old_threshold
+            raise
+
         if changes:
             self.log_event(f"EDIT [{item_id}]: {', '.join(changes)}")
 

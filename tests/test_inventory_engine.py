@@ -262,6 +262,19 @@ class EditAndAuditTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.manager.edit_item("A", price=-3.0)
 
+    def test_rejected_edit_is_rolled_back_atomically(self):
+        """Regression: edit_item applied each field as it validated it, so a
+        later field failing (e.g. a negative price) left an earlier field
+        (e.g. name) mutated with no audit entry recording the change."""
+        start = len(self.manager.audit_logs)
+        with self.assertRaises(ValueError):
+            self.manager.edit_item("A", name="Renamed", price=-3.0)
+
+        item = self.manager.get_item("A")
+        self.assertEqual(item.name, "Alpha")
+        self.assertAlmostEqual(item.price, 10.0)
+        self.assertEqual(len(self.manager.audit_logs), start)
+
     def test_edit_of_unknown_sku_raises(self):
         with self.assertRaises(KeyError):
             self.manager.edit_item("MISSING", price=1.0)
