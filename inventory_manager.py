@@ -163,7 +163,7 @@ class AdvancedInventoryManager:
             self.log_event(f"EDIT [{item_id}]: {', '.join(changes)}")
 
     # --- ALGORITHM 4: Automatic Reorder Algorithm ---
-    def auto_reorder(self, item: InventoryItem) -> None:
+    def auto_reorder(self, item: InventoryItem) -> bool:
         """Automatically purchases stock to replenish depleted inventory.
 
         Orders whichever is larger: the standard bulk quantity, or however many
@@ -176,28 +176,35 @@ class AdvancedInventoryManager:
         this method, and without the re-check the second call would add a
         full extra bulk order on top of stock the first call already
         replenished.
+
+        Returns whether this call actually placed an order, so a caller that
+        raced another reorder on the same item can tell its call was a no-op
+        rather than assuming it did the purchasing.
         """
         with self._global_lock:
             if not item.requires_reorder:
-                return
+                return False
             shortfall = item.reorder_threshold - item.stock
             reorder_amount = max(BULK_REORDER_QUANTITY, shortfall + REORDER_BUFFER)
             item.adjust_stock(reorder_amount)
             self.log_event(f"AUTO-REORDER: System purchased {reorder_amount} units for {item.item_id}.")
+            return True
 
     def record_sale(self, item_id: str, quantity: int) -> bool:
         """Deducts a sale from stock, auto-reordering if it drops to or below
-        the threshold. Returns whether an auto-reorder was triggered."""
+        the threshold. Returns whether this call's auto-reorder actually
+        placed an order (not merely whether the item looked low after the
+        sale) -- a sale that loses the race to another concurrent reorder on
+        the same item reports False, matching the single audit-log entry."""
         item = self.get_item(item_id) # Uses Searching Algorithm
-        
+
         new_stock = item.adjust_stock(-quantity) # Uses Stock Update Algorithm
         self.log_event(f"SALE: Sold {quantity} of {item_id}. Remaining: {new_stock}")
-        
+
         # Uses Reorder Threshold-Checking Algorithm
         if item.requires_reorder:
-            self.auto_reorder(item) # Trigger Automatic Reorder Algorithm
-            return True
-            
+            return self.auto_reorder(item) # Trigger Automatic Reorder Algorithm
+
         return False
 
     # --- ALGORITHM 5: Sorting Algorithm — Merge Sort ---

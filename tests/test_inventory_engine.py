@@ -8,6 +8,7 @@ import os
 import sys
 import threading
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -244,6 +245,69 @@ class SaleAndReorderTests(unittest.TestCase):
         self.assertFalse(item.requires_reorder)
         self.assertLessEqual(item.stock, 8 + BULK_REORDER_QUANTITY + REORDER_BUFFER,
                               "stock implies more than one bulk reorder was applied")
+
+    def test_auto_reorder_return_value_reflects_whether_it_actually_ordered(self):
+        """auto_reorder's return value tells a caller whether THIS call placed
+        an order, not just whether the item looked low beforehand -- a second
+        call on an already-cleared item is a no-op and must say so."""
+        self.manager.add_item(make_item("A", stock=2, threshold=5))
+        item = self.manager.get_item("A")
+
+        self.assertTrue(self.manager.auto_reorder(item))
+        self.assertFalse(self.manager.auto_reorder(item),
+                          "a no-op reorder must report that it did not order")
+
+    def test_losing_sale_reports_false_instead_of_a_stale_observation(self):
+        """Regression for record_sale returning True for a call whose own
+        auto_reorder was actually a no-op. Forces the exact interleaving:
+        both sales land before either checks the threshold, so both
+        legitimately observe the item as needing reorder; only the thread
+        that wins the lock inside auto_reorder actually places an order, and
+        record_sale must reflect that rather than echo its own pre-lock
+        observation."""
+        self.manager.add_item(make_item("A", stock=8, threshold=8))
+        original_requires_reorder = InventoryItem.requires_reorder.fget
+        barrier_before_read = threading.Barrier(2)
+        barrier_after_read = threading.Barrier(2)
+        thread_state = threading.local()
+
+        def synced_requires_reorder(item_self):
+            # Only synchronises each thread's first check (the one record_sale
+            # makes before the lock); auto_reorder's own re-check under the
+            # lock must pass straight through, or it would never find a
+            # partner to pair with on the barriers. The two barriers pin both
+            # threads' reads to the moment both sales are applied but neither
+            # has reordered yet: without the second barrier, one thread can
+            # race ahead through its entire auto_reorder call -- reordering
+            # and clearing the threshold -- before the other even reads the
+            # value, so the pre-reorder state the test wants both to observe
+            # would never actually happen.
+            if not getattr(thread_state, "synced", False):
+                thread_state.synced = True
+                barrier_before_read.wait(timeout=5)
+                result = original_requires_reorder(item_self)
+                barrier_after_read.wait(timeout=5)
+                return result
+            return original_requires_reorder(item_self)
+
+        results = [None, None]
+
+        def sell(idx):
+            results[idx] = self.manager.record_sale("A", 1)
+
+        with mock.patch.object(InventoryItem, "requires_reorder",
+                                property(synced_requires_reorder)):
+            threads = [threading.Thread(target=sell, args=(i,)) for i in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        reorder_entries = [log for log in self.manager.audit_logs if "AUTO-REORDER" in log]
+        self.assertEqual(sorted(results), [False, True],
+                          "exactly one of the two racing sales should report placing the order")
+        self.assertEqual(len(reorder_entries), 1,
+                          "exactly one reorder should actually have been placed")
 
 
 class EditAndAuditTests(unittest.TestCase):
