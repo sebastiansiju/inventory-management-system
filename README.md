@@ -41,9 +41,10 @@ InventoryItem              A single product. SKU, stock, price, name and thresho
                            are private attributes exposed through validating
                            properties (a blank SKU or name, and negative prices or
                            thresholds, are rejected at construction or the setter).
-                           Each instance carries its own threading.Lock, so
+                           Each instance carries its own threading.RLock, so
                            concurrent readers and writers of one product are
-                           serialised.
+                           serialised, and a multi-field edit (apply_edits)
+                           can hold it for its whole update.
 
 AdvancedInventoryManager   Owns the SKU -> InventoryItem hash map behind a global
                            lock, plus the audit log. Provides search, edit, sale,
@@ -102,7 +103,7 @@ The engine is decoupled from the GUI, so it is tested without a display:
 python -m unittest discover -s tests -t . -v
 ```
 
-38 tests cover the property validators (including that construction itself
+39 tests cover the property validators (including that construction itself
 rejects a blank ID or name, or a negative stock, price or threshold), stock
 arithmetic and its non-negative guard, `O(1)` lookup, merge sort across all
 four keys and its stability on tied keys, the reorder policy, the audit
@@ -112,9 +113,11 @@ that a restocked item finishes clear of its threshold, a pair of tests
 guarding against a double reorder when two sales race on the same item, a
 forced-interleaving test asserting that the losing side of that race
 reports it did *not* place an order, rather than echoing its own
-observation from before the lock resolved the race, and a test that a
+observation from before the lock resolved the race, a test that a
 rejected multi-field edit rolls back cleanly instead of leaving an earlier
-field changed with no audit entry.
+field changed with no audit entry, and a forced-interleaving test asserting
+that a concurrent failing edit can no longer roll back another thread's
+already-committed change on the same item.
 
 ## Project structure
 

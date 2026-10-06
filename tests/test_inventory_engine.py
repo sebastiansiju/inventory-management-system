@@ -339,6 +339,68 @@ class EditAndAuditTests(unittest.TestCase):
         self.assertAlmostEqual(item.price, 10.0)
         self.assertEqual(len(self.manager.audit_logs), start)
 
+    def test_concurrent_failing_edit_does_not_clobber_a_concurrent_success(self):
+        """Regression: edit_item used to read its "old value" snapshot before
+        acquiring any lock for the whole multi-field update. Two edits racing
+        on the same item could both read the same stale snapshot; if one
+        succeeded and the other then failed validation, the failing edit's
+        rollback would overwrite the successful edit's already-committed
+        field with its own stale snapshot, silently losing the update.
+
+        Forces the exact interleaving: both edits must have captured their
+        "old" snapshot before either is allowed to write any field, which is
+        the scenario that triggered the bug."""
+        item = self.manager.get_item("A")
+        start_barrier = threading.Barrier(2)
+        read_barrier = threading.Barrier(2, timeout=1)
+        original_threshold_getter = InventoryItem.reorder_threshold.fget
+        seen = []
+        lock = threading.Lock()
+
+        def synced_threshold_getter(item_self):
+            # reorder_threshold is the last of the three "old value" reads in
+            # apply_edits. The first caller through here blocks until a
+            # second caller arrives, so neither thread can start writing
+            # until both have captured their snapshot -- unless apply_edits
+            # is already serializing them via the item's lock, in which case
+            # the second thread can't even reach this line yet and the wait
+            # below times out harmlessly.
+            value = original_threshold_getter(item_self)
+            with lock:
+                seen.append(1)
+                first = len(seen) == 1
+            if first:
+                try:
+                    read_barrier.wait()
+                except threading.BrokenBarrierError:
+                    pass
+            return value
+
+        def good_edit():
+            start_barrier.wait(timeout=5)
+            self.manager.edit_item("A", price=99.0)
+
+        def bad_edit():
+            start_barrier.wait(timeout=5)
+            try:
+                self.manager.edit_item("A", threshold=-1)
+            except ValueError:
+                pass
+
+        with mock.patch.object(InventoryItem, "reorder_threshold",
+                                property(synced_threshold_getter,
+                                         InventoryItem.reorder_threshold.fset)):
+            threads = [threading.Thread(target=good_edit), threading.Thread(target=bad_edit)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        self.assertAlmostEqual(item.price, 99.0,
+                                "a concurrent failing edit must not roll back "
+                                "another thread's already-committed change")
+        self.assertEqual(item.reorder_threshold, 4, "the failed edit must not change the threshold")
+
     def test_edit_of_unknown_sku_raises(self):
         with self.assertRaises(KeyError):
             self.manager.edit_item("MISSING", price=1.0)

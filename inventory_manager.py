@@ -21,7 +21,10 @@ class InventoryItem:
         enforce on later edits: a blank ID or name, or a negative stock,
         price or threshold, is rejected up front rather than only on the
         next edit."""
-        self._lock: threading.Lock = threading.Lock()
+        # RLock, not Lock: apply_edits holds this for its whole multi-field
+        # update and calls the property setters below while already holding
+        # it, which would deadlock on a plain Lock.
+        self._lock: threading.RLock = threading.RLock()
         if not item_id or not item_id.strip():
             raise ValueError("Item ID cannot be empty.")
         self._item_id: str = item_id
@@ -74,6 +77,40 @@ class InventoryItem:
         """Sets the reorder threshold; rejects a negative value."""
         if new_threshold < 0: raise ValueError("Threshold cannot be negative.")
         with self._lock: self._reorder_threshold = new_threshold
+
+    def apply_edits(self, name: Optional[str] = None, price: Optional[float] = None,
+                     threshold: Optional[int] = None) -> List[str]:
+        """Atomically updates whichever of name/price/threshold are given and
+        returns a human-readable description of each change applied.
+
+        Holds this item's own lock for the whole operation, so a concurrent
+        call on the same item can never read a stale snapshot of the "old"
+        values -- without that, a failing concurrent edit's rollback could
+        overwrite a field this call already validated and committed.
+
+        All-or-nothing: if a later field fails its validation (e.g. a
+        negative price), any earlier field this call already applied is
+        rolled back before the error is raised.
+        """
+        with self._lock:
+            old_name, old_price, old_threshold = self.name, self.price, self.reorder_threshold
+            changes = []
+            try:
+                if name is not None:
+                    self.name = name
+                    changes.append(f"Name: '{old_name}' -> '{name}'")
+                if price is not None:
+                    self.price = price
+                    changes.append(f"Price: ${old_price:.2f} -> ${price:.2f}")
+                if threshold is not None:
+                    self.reorder_threshold = threshold
+                    changes.append(f"Threshold: {old_threshold} -> {threshold}")
+            except ValueError:
+                self.name = old_name
+                self.price = old_price
+                self.reorder_threshold = old_threshold
+                raise
+            return changes
 
     # --- ALGORITHM 2: Stock Update Algorithm ---
     def adjust_stock(self, amount: int) -> int:
@@ -134,30 +171,13 @@ class AdvancedInventoryManager:
         Fields left as None are left untouched; if none are given, nothing
         is logged.
 
-        All-or-nothing: if a later field fails its validation (e.g. a
-        negative price), any earlier field this call already applied is
-        rolled back before the error is raised, so a rejected edit never
-        leaves the item partially mutated and unaudited.
+        Delegates the actual multi-field update to the item's own
+        apply_edits, which applies it atomically under the item's lock, so a
+        rejected edit never leaves the item partially mutated and unaudited,
+        and a concurrent edit on the same item can't interleave with it.
         """
         item = self.get_item(item_id) # Uses Searching Algorithm
-        old_name, old_price, old_threshold = item.name, item.price, item.reorder_threshold
-        changes = []
-
-        try:
-            if name is not None:
-                item.name = name
-                changes.append(f"Name: '{old_name}' -> '{name}'")
-            if price is not None:
-                item.price = price
-                changes.append(f"Price: ${old_price:.2f} -> ${price:.2f}")
-            if threshold is not None:
-                item.reorder_threshold = threshold
-                changes.append(f"Threshold: {old_threshold} -> {threshold}")
-        except ValueError:
-            item.name = old_name
-            item.price = old_price
-            item.reorder_threshold = old_threshold
-            raise
+        changes = item.apply_edits(name=name, price=price, threshold=threshold)
 
         if changes:
             self.log_event(f"EDIT [{item_id}]: {', '.join(changes)}")
