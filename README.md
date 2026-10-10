@@ -103,10 +103,11 @@ The engine is decoupled from the GUI, so it is tested without a display:
 python -m unittest discover -s tests -t . -v
 ```
 
-39 tests cover the property validators (including that construction itself
+43 tests cover the property validators (including that construction itself
 rejects a blank ID or name, or a negative stock, price or threshold), stock
 arithmetic and its non-negative guard, `O(1)` lookup, merge sort across all
-four keys and its stability on tied keys, the reorder policy, the audit
+four keys and its stability on tied keys, the reorder policy, manual
+restocking (including its audit entry and quantity validation), the audit
 trail, and the locking — including a concurrency test asserting that 8
 threads doing 100 increments each land on exactly 800, a regression test
 that a restocked item finishes clear of its threshold, a pair of tests

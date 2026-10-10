@@ -310,6 +310,38 @@ class SaleAndReorderTests(unittest.TestCase):
                           "exactly one reorder should actually have been placed")
 
 
+class ManualRestockTests(unittest.TestCase):
+    """restock_item used to exist only as a GUI callback (adjust_stock plus a
+    hand-written log entry), so this path had no engine-level test coverage
+    at all. Covers it the same way add_item/record_sale/edit_item are."""
+
+    def setUp(self):
+        self.manager = AdvancedInventoryManager()
+        self.manager.add_item(make_item("A", stock=10, threshold=3))
+
+    def test_restock_increases_stock_and_returns_new_total(self):
+        new_total = self.manager.restock_item("A", 5)
+        self.assertEqual(new_total, 15)
+        self.assertEqual(self.manager.get_item("A").stock, 15)
+
+    def test_restock_is_audited(self):
+        start = len(self.manager.audit_logs)
+        self.manager.restock_item("A", 5)
+        self.assertGreater(len(self.manager.audit_logs), start)
+        self.assertIn("MANUAL RESTOCK", self.manager.audit_logs[-1])
+
+    def test_restock_rejects_non_positive_quantity(self):
+        with self.assertRaises(ValueError):
+            self.manager.restock_item("A", 0)
+        with self.assertRaises(ValueError):
+            self.manager.restock_item("A", -5)
+        self.assertEqual(self.manager.get_item("A").stock, 10)
+
+    def test_restock_of_unknown_sku_raises(self):
+        with self.assertRaises(KeyError):
+            self.manager.restock_item("MISSING", 5)
+
+
 class EditAndAuditTests(unittest.TestCase):
     def setUp(self):
         self.manager = AdvancedInventoryManager()

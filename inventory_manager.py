@@ -15,7 +15,7 @@ REORDER_BUFFER = 10
 
 class InventoryItem:
     """Represents an encapsulated product with built-in thread safety."""
-    
+
     def __init__(self, item_id: str, name: str, stock: int, price: float, reorder_threshold: int):
         """Creates a product, applying the same validation the properties
         enforce on later edits: a blank ID or name, or a negative stock,
@@ -131,7 +131,7 @@ class InventoryItem:
 
 class AdvancedInventoryManager:
     """Thread-safe inventory engine using hash map lookup O(1)."""
-    
+
     def __init__(self):
         """Creates an empty manager with no items and no audit history."""
         self._inventory: Dict[str, InventoryItem] = {}
@@ -181,6 +181,26 @@ class AdvancedInventoryManager:
 
         if changes:
             self.log_event(f"EDIT [{item_id}]: {', '.join(changes)}")
+
+    def restock_item(self, item_id: str, quantity: int) -> int:
+        """Adds units to an existing item's stock for a manual restock and
+        audits the change.
+
+        Centralizes what used to be a GUI-only callback (adjust_stock plus a
+        hand-written log entry) so manual restocking is covered by the same
+        engine layer -- and the same test coverage -- as add_item, edit_item,
+        and record_sale, instead of being the one mutation only reachable
+        through Tkinter.
+
+        Returns the item's new stock count. Raises ValueError for a
+        non-positive quantity, or KeyError (via get_item) for an unknown SKU.
+        """
+        if quantity <= 0:
+            raise ValueError("Restock quantity must be greater than zero.")
+        item = self.get_item(item_id) # Uses Searching Algorithm
+        new_stock = item.adjust_stock(quantity) # Uses Stock Update Algorithm
+        self.log_event(f"MANUAL RESTOCK: Added {quantity} units to {item_id}.")
+        return new_stock
 
     # --- ALGORITHM 4: Automatic Reorder Algorithm ---
     def auto_reorder(self, item: InventoryItem) -> bool:
@@ -271,8 +291,8 @@ class AdvancedInventoryManager:
         """O(n) linear scan to extract data, followed by O(n log n) Merge Sort."""
         with self._global_lock:
             # Linear scan extracting all values from the hash map
-            items_list = list(self._inventory.values()) 
-        
+            items_list = list(self._inventory.values())
+
         return self.merge_sort_inventory(items_list, sort_by)
 
 
@@ -355,12 +375,12 @@ class InventoryApp(tk.Tk):
     def _build_table_panel(self, parent: ttk.Frame) -> None:
         table_frame = ttk.LabelFrame(parent, text=" Current Inventory Records ", padding=10)
         table_frame.pack(fill="both", expand=True)
-        
+
         # Merge Sort Controller
         sort_frame = ttk.Frame(table_frame)
         sort_frame.pack(fill="x", pady=(0, 5))
         ttk.Label(sort_frame, text="Merge Sort By: ").pack(side="left")
-        
+
         self.var_sort = tk.StringVar(value="id")
         sort_cb = ttk.Combobox(sort_frame, textvariable=self.var_sort, values=["id", "name", "stock", "price"], state="readonly", width=10)
         sort_cb.pack(side="left")
@@ -371,14 +391,14 @@ class InventoryApp(tk.Tk):
 
         headers = {"id": "Item ID", "name": "Name", "stock": "Stock", "price": "Price", "threshold": "Reorder Min", "status": "Health Status"}
         widths = {"id": 80, "name": 160, "stock": 60, "price": 70, "threshold": 90, "status": 140}
-        
+
         for col in columns:
             self.tree.heading(col, text=headers[col])
             self.tree.column(col, width=widths[col], anchor="center")
 
         scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscroll=scrollbar.set)
-        
+
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         self.tree.bind("<<TreeviewSelect>>", self._on_select_item)
@@ -420,7 +440,7 @@ class InventoryApp(tk.Tk):
     def _seed_sample_data(self) -> None:
         self.manager.add_item(InventoryItem("SRVC-01", "Enterprise Server", 10, 2499.99, 3))
         self.manager.add_item(InventoryItem("SWCH-02", "Network Switch", 25, 450.00, 8))
-        self.manager.add_item(InventoryItem("CABL-03", "Cat6 Cable (10m)", 5, 15.00, 10)) 
+        self.manager.add_item(InventoryItem("CABL-03", "Cat6 Cable (10m)", 5, 15.00, 10))
         self._refresh_ui()
 
     def _selected_item_id(self) -> Optional[str]:
@@ -484,11 +504,7 @@ class InventoryApp(tk.Tk):
 
         try:
             qty = int(self.var_op_qty.get())
-            if qty <= 0: raise ValueError("Quantity must be greater than zero.")
-
-            item = self.manager.get_item(item_id)
-            item.adjust_stock(qty)
-            self.manager.log_event(f"MANUAL RESTOCK: Added {qty} units to {item_id}.")
+            self.manager.restock_item(item_id, qty)
             self._refresh_ui()
         except (ValueError, KeyError) as e:
             messagebox.showerror("Restock Error", str(e))
@@ -511,4 +527,3 @@ class InventoryApp(tk.Tk):
 if __name__ == "__main__":
     app = InventoryApp()
     app.mainloop()
-
