@@ -16,7 +16,7 @@ REORDER_BUFFER = 10
 class InventoryItem:
     """Represents an encapsulated product with built-in thread safety."""
 
-    def __init__(self, item_id: str, name: str, stock: int, price: float, reorder_threshold: int):
+    def __init__(self, item_id: str, name: str, stock: int, price: float, reorder_threshold: int) -> None:
         """Creates a product, applying the same validation the properties
         enforce on later edits: a blank ID or name, or a negative stock,
         price or threshold, is rejected up front rather than only on the
@@ -132,7 +132,7 @@ class InventoryItem:
 class AdvancedInventoryManager:
     """Thread-safe inventory engine using hash map lookup O(1)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Creates an empty manager with no items and no audit history."""
         self._inventory: Dict[str, InventoryItem] = {}
         self._global_lock: threading.Lock = threading.Lock()
