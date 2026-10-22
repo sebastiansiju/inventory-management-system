@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
 import threading
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TypeVar
 
 # Replenishment policy. An auto-reorder buys at least BULK_REORDER_QUANTITY
 # units, but always enough to finish REORDER_BUFFER units clear of the item's
@@ -129,6 +129,33 @@ class InventoryItem:
             return self._stock <= self._reorder_threshold
 
 
+class _ReportRow:
+    """Frozen (item_id, name, stock, price) read of one item, captured once
+    during generate_scanned_report's linear scan rather than re-read live
+    from the item during the merge sort that follows.
+
+    merge_sort_inventory compares the same item's sort field multiple times
+    while merging. If those comparisons read the live, mutable item
+    directly, a concurrent writer (adjust_stock, auto_reorder, edit_item)
+    could change the field between two comparisons of the same item, so the
+    result would no longer be consistently sorted by any single value. A
+    one-time snapshot up front means every comparison sees the same value
+    regardless of what happens to the item afterwards.
+    """
+
+    __slots__ = ("item_id", "name", "stock", "price", "item")
+
+    def __init__(self, item: "InventoryItem") -> None:
+        self.item_id = item.item_id
+        self.name = item.name
+        self.stock = item.stock
+        self.price = item.price
+        self.item = item
+
+
+_SortRow = TypeVar("_SortRow")
+
+
 class AdvancedInventoryManager:
     """Thread-safe inventory engine using hash map lookup O(1)."""
 
@@ -248,8 +275,13 @@ class AdvancedInventoryManager:
         return False
 
     # --- ALGORITHM 5: Sorting Algorithm — Merge Sort ---
-    def merge_sort_inventory(self, items: List[InventoryItem], sort_by: str = "id") -> List[InventoryItem]:
-        """O(n log n) recursive merge sort implementation."""
+    def merge_sort_inventory(self, items: List[_SortRow], sort_by: str = "id") -> List[_SortRow]:
+        """O(n log n) recursive merge sort implementation.
+
+        Generic over any object exposing item_id/name/stock/price (an
+        InventoryItem, or the frozen _ReportRow snapshots generate_scanned_
+        report sorts), rather than tied to InventoryItem specifically.
+        """
         if len(items) <= 1:
             return items
 
@@ -259,7 +291,7 @@ class AdvancedInventoryManager:
 
         return self._merge(left_half, right_half, sort_by)
 
-    def _merge(self, left: List[InventoryItem], right: List[InventoryItem], sort_by: str) -> List[InventoryItem]:
+    def _merge(self, left: List[_SortRow], right: List[_SortRow], sort_by: str) -> List[_SortRow]:
         sorted_list = []
         i = j = 0
 
@@ -288,12 +320,19 @@ class AdvancedInventoryManager:
 
     # --- ALGORITHM 6: Linear Scan Algorithm for Inventory Reports ---
     def generate_scanned_report(self, sort_by: str = "id") -> List[InventoryItem]:
-        """O(n) linear scan to extract data, followed by O(n log n) Merge Sort."""
+        """O(n) linear scan to extract data, followed by O(n log n) Merge Sort.
+
+        Each item's sort-relevant fields are captured once into a
+        _ReportRow during the scan, so the merge sort that follows compares
+        frozen snapshots instead of re-reading the live item -- see
+        _ReportRow for why that matters under concurrent writers.
+        """
         with self._global_lock:
             # Linear scan extracting all values from the hash map
-            items_list = list(self._inventory.values())
+            rows = [_ReportRow(item) for item in self._inventory.values()]
 
-        return self.merge_sort_inventory(items_list, sort_by)
+        sorted_rows = self.merge_sort_inventory(rows, sort_by)
+        return [row.item for row in sorted_rows]
 
 
 # GUI APPLICATION (Tkinter Frontend)

@@ -103,7 +103,7 @@ The engine is decoupled from the GUI, so it is tested without a display:
 python -m unittest discover -s tests -t . -v
 ```
 
-43 tests cover the property validators (including that construction itself
+44 tests cover the property validators (including that construction itself
 rejects a blank ID or name, or a negative stock, price or threshold), stock
 arithmetic and its non-negative guard, `O(1)` lookup, merge sort across all
 four keys and its stability on tied keys, the reorder policy, manual
@@ -116,9 +116,11 @@ forced-interleaving test asserting that the losing side of that race
 reports it did *not* place an order, rather than echoing its own
 observation from before the lock resolved the race, a test that a
 rejected multi-field edit rolls back cleanly instead of leaving an earlier
-field changed with no audit entry, and a forced-interleaving test asserting
+field changed with no audit entry, a forced-interleaving test asserting
 that a concurrent failing edit can no longer roll back another thread's
-already-committed change on the same item.
+already-committed change on the same item, and a test that a report's
+sort order reflects each item's value at scan time rather than a later
+live read of the same mutable field.
 
 ## Project structure
 

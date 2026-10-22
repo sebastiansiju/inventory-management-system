@@ -166,6 +166,45 @@ class SearchAndReportTests(unittest.TestCase):
         by_price = [i.item_id for i in manager.generate_scanned_report("price")]
         self.assertEqual(by_price, original_order)
 
+    def test_report_sorts_by_value_at_scan_time_not_live_reads(self):
+        """Regression: generate_scanned_report used to hand merge_sort_
+        inventory the live items themselves, so the sort re-read each
+        item's mutable field on every comparison it was part of. An item
+        compared more than once (because it keeps losing to several items
+        from the other half before the merge exhausts them) could see a
+        different value on each read -- e.g. a concurrent adjust_stock --
+        so the final order wouldn't match any single consistent snapshot.
+        Capturing each item's fields once up front in a _ReportRow fixes
+        this: the sort key is read exactly once per item, so the result is
+        well-defined regardless of what happens to the item afterwards."""
+        manager = AdvancedInventoryManager()
+        manager.add_item(make_item("A", stock=100))
+        manager.add_item(make_item("D", stock=1))
+        manager.add_item(make_item("E", stock=2))
+        manager.add_item(make_item("F", stock=3))
+
+        read_counts = {}
+        original_stock = InventoryItem.stock.fget
+
+        def racy_stock(item_self):
+            read_counts[item_self.item_id] = read_counts.get(item_self.item_id, 0) + 1
+            value = original_stock(item_self)
+            if item_self.item_id == "A" and read_counts["A"] == 1:
+                # Simulate a concurrent writer mutating A the instant it is
+                # first observed. A correct single-snapshot read is already
+                # done by this point; a live re-read later would not be.
+                item_self._stock = -1
+            return value
+
+        with mock.patch.object(InventoryItem, "stock", property(racy_stock)):
+            report = manager.generate_scanned_report("stock")
+
+        self.assertEqual([i.item_id for i in report], ["D", "E", "F", "A"],
+                          "sort order must reflect each item's value at scan time (100), "
+                          "not a later live read of the same field")
+        self.assertEqual(read_counts["A"], 1,
+                          "the sort key must be captured once per item, not re-read live during the merge")
+
 
 class SaleAndReorderTests(unittest.TestCase):
     def setUp(self):
