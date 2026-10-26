@@ -1,8 +1,19 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
-from datetime import datetime
+from __future__ import annotations
+
 import threading
+from datetime import datetime
 from typing import Dict, List, Optional, TypeVar
+
+try:
+    import tkinter as tk
+    from tkinter import ttk, messagebox
+except ImportError:
+    # Lets InventoryItem/AdvancedInventoryManager be imported and unit-tested
+    # on a Python without Tkinter installed; only building the GUI itself
+    # (InventoryApp) requires it.
+    tk = None
+    ttk = None
+    messagebox = None
 
 # Replenishment policy. An auto-reorder buys at least BULK_REORDER_QUANTITY
 # units, but always enough to finish REORDER_BUFFER units clear of the item's
@@ -338,7 +349,7 @@ class AdvancedInventoryManager:
 # GUI APPLICATION (Tkinter Frontend)
 
 
-class InventoryApp(tk.Tk):
+class InventoryApp(tk.Tk if tk is not None else object):
     def __init__(self) -> None:
         """Builds the window, the engine, and loads the sample catalogue."""
         super().__init__()
